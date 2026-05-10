@@ -1,0 +1,79 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color: #17212f;
+  background:
+    radial-gradient(circle at top left, rgba(203, 219, 232, 0.32), transparent 28%),
+    radial-gradient(circle at top right, rgba(252, 243, 228, 0.68), transparent 24%),
+    linear-gradient(180deg, #fbfaf8 0%, #f4f6f8 100%);
+  font-family: "SF Pro Text", "SF Pro Display", "Helvetica Neue", "Segoe UI", sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color-scheme: light;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  color: #17212f;
+  background: transparent;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+::selection {
+  background: rgba(108, 134, 161, 0.18);
+}
+
+@layer base {
+  h1,
+  h2,
+  h3,
+  h4 {
+    letter-spacing: -0.02em;
+  }
+
+  input,
+  textarea,
+  select {
+    @apply text-ink placeholder:text-slate-400;
+  }
+}
+
+@layer components {
+  .panel {
+    @apply rounded-[28px] border border-white/70 bg-white/80 shadow-panel backdrop-blur-xl;
+  }
+
+  .panel-soft {
+    @apply rounded-3xl border border-slate-200/70 bg-white/70 shadow-soft backdrop-blur-lg;
+  }
+
+  .field {
+    @apply w-full rounded-2xl border border-slate-200 bg-white/90 px-4 py-3 text-sm text-ink outline-none transition focus:border-slate-300 focus:ring-4 focus:ring-slate-200/60;
+  }
+
+  .field-label {
+    @apply mb-2 block text-sm font-medium text-slate-600;
+  }
+
+  .subtle-text {
+    @apply text-sm leading-6 text-slate-500;
+  }
+}
