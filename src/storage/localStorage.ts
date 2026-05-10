@@ -1,7 +1,8 @@
 import { MONTHLY_GOAL_DAYS } from "../constants/options";
-import type { AppData } from "../types/study";
+import type { AppData, CloudSyncPreferences } from "../types/study";
 
 const STORAGE_KEY = "xiaonituan-english-camp-v1";
+const CLOUD_PREFERENCES_KEY = "xiaonituan-english-camp-cloud-v1";
 
 export function getDefaultAppData(): AppData {
   return {
@@ -43,4 +44,33 @@ export function saveAppData(data: AppData): void {
   }
 
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+}
+
+export function loadCloudSyncPreferences(): CloudSyncPreferences {
+  if (typeof window === "undefined") {
+    return { autoSyncEnabled: false };
+  }
+
+  try {
+    const raw = window.localStorage.getItem(CLOUD_PREFERENCES_KEY);
+    if (!raw) {
+      return { autoSyncEnabled: false };
+    }
+
+    const parsed = JSON.parse(raw) as Partial<CloudSyncPreferences>;
+    return {
+      autoSyncEnabled: parsed.autoSyncEnabled ?? false,
+      lastSyncedAt: parsed.lastSyncedAt,
+    };
+  } catch {
+    return { autoSyncEnabled: false };
+  }
+}
+
+export function saveCloudSyncPreferences(preferences: CloudSyncPreferences): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem(CLOUD_PREFERENCES_KEY, JSON.stringify(preferences));
 }

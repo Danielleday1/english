@@ -10,6 +10,7 @@ interface TopNavProps {
   streakDays: number;
   todayProgress: number;
   monthlyGoal: number;
+  cloudLabel: string;
 }
 
 const NAV_ITEMS: Array<{ id: AppPage; label: string }> = [
@@ -20,7 +21,7 @@ const NAV_ITEMS: Array<{ id: AppPage; label: string }> = [
   { id: "progress", label: "复盘 Progress & Review" },
 ];
 
-export function TopNav({ appTitle, currentPage, onNavigate, streakDays, todayProgress, monthlyGoal }: TopNavProps) {
+export function TopNav({ appTitle, currentPage, onNavigate, streakDays, todayProgress, monthlyGoal, cloudLabel }: TopNavProps) {
   return (
     <header className="panel animate-fade-up px-4 py-4 sm:px-6">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
@@ -29,6 +30,7 @@ export function TopNav({ appTitle, currentPage, onNavigate, streakDays, todayPro
           <div>
             <h1 className="text-xl font-semibold text-ink sm:text-2xl">{appTitle}</h1>
             <p className="subtle-text">一个安静、可靠、每天都会接住你的英语训练台。</p>
+            <p className="mt-2 text-xs font-medium uppercase tracking-[0.18em] text-slate-400">{cloudLabel}</p>
           </div>
         </div>
 

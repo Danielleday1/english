@@ -40,6 +40,8 @@ export interface Recording {
   duration: number;
   blobKey: string;
   mimeType: string;
+  cloudPath?: string;
+  syncedAt?: string;
   createdAt: string;
 }
 
@@ -198,6 +200,28 @@ export interface AppData {
   monthlyGoalDays: number;
 }
 
+export type CloudSyncPhase = "setup_required" | "signed_out" | "checking" | "ready" | "syncing" | "error";
+
+export interface CloudSyncState {
+  phase: CloudSyncPhase;
+  isConfigured: boolean;
+  isSignedIn: boolean;
+  autoSyncEnabled: boolean;
+  userEmail?: string;
+  userId?: string;
+  lastSyncedAt?: string;
+  remoteUpdatedAt?: string;
+  hasRemoteSnapshot: boolean;
+  restoreRecommended: boolean;
+  restoreReason?: string;
+  message?: string;
+}
+
+export interface CloudSyncPreferences {
+  autoSyncEnabled: boolean;
+  lastSyncedAt?: string;
+}
+
 export interface TextBackupPayload {
   version: number;
   backupType: "text";
@@ -206,6 +230,7 @@ export interface TextBackupPayload {
     sessions: StudySession[];
     materials: Material[];
     sentences: Sentence[];
+    monthlyGoalDays: number;
     statistics: {
       dashboard: DashboardStats;
       errorReasons: ErrorReasonStat[];
@@ -228,3 +253,15 @@ export interface FullBackupPayload {
 }
 
 export type BackupPayload = TextBackupPayload | FullBackupPayload;
+
+export interface CloudSnapshotPayload {
+  version: number;
+  exportedAt: string;
+  updatedAt: string;
+  data: {
+    sessions: StudySession[];
+    sentences: Sentence[];
+    recordings: Recording[];
+    monthlyGoalDays: number;
+  };
+}

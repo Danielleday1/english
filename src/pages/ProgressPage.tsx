@@ -11,6 +11,7 @@ import {
 } from "recharts";
 import { ExportImportPanel } from "../components/progress/ExportImportPanel";
 import { ChartCard } from "../components/progress/ChartCard";
+import { CloudSyncPanel } from "../components/progress/CloudSyncPanel";
 import { ReviewQueue } from "../components/progress/ReviewQueue";
 import { WeeklyReviewPanel } from "../components/progress/WeeklyReviewPanel";
 import { PageHeader } from "../components/layout/PageHeader";
@@ -41,6 +42,11 @@ export function ProgressPage({ stats, trends, errorReasons, reviewQueue, weeklyR
         <StatCard label="本月已练习分钟数" value={`${stats.monthlyMinutes} 分钟`} />
         <StatCard label="本周完成率" value={`${stats.weeklyCompletionRate}%`} />
       </div>
+
+      <section className="space-y-4">
+        <h3 className="text-xl font-semibold text-ink">云端同步</h3>
+        <CloudSyncPanel />
+      </section>
 
       <section className="space-y-4">
         <h3 className="text-xl font-semibold text-ink">本周复习板块</h3>

@@ -10,6 +10,7 @@ export function buildTextBackup(data: AppData): TextBackupPayload {
       sessions: data.sessions,
       materials: deriveMaterials(data.sessions),
       sentences: data.sentenceBank,
+      monthlyGoalDays: data.monthlyGoalDays,
       statistics: {
         dashboard: calculateDashboardStats(data),
         errorReasons: getErrorReasonStats(data.sessions),
