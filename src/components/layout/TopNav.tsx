@@ -1,16 +1,19 @@
 import clsx from "clsx";
-import { Flame, Target, TrendingUp } from "lucide-react";
+import { Cloud, Flame, Target, TrendingUp } from "lucide-react";
 
 export type AppPage = "dashboard" | "daily" | "workplace" | "ielts" | "progress";
+export type CloudEntryStatus = "local_only" | "available" | "connected";
 
 interface TopNavProps {
   appTitle: string;
   currentPage: AppPage;
   onNavigate: (page: AppPage) => void;
+  onOpenCloudSync: () => void;
   streakDays: number;
   todayProgress: number;
   monthlyGoal: number;
   cloudLabel: string;
+  cloudStatus: CloudEntryStatus;
 }
 
 const NAV_ITEMS: Array<{ id: AppPage; label: string }> = [
@@ -21,7 +24,24 @@ const NAV_ITEMS: Array<{ id: AppPage; label: string }> = [
   { id: "progress", label: "复盘 Progress & Review" },
 ];
 
-export function TopNav({ appTitle, currentPage, onNavigate, streakDays, todayProgress, monthlyGoal, cloudLabel }: TopNavProps) {
+export function TopNav({
+  appTitle,
+  currentPage,
+  onNavigate,
+  onOpenCloudSync,
+  streakDays,
+  todayProgress,
+  monthlyGoal,
+  cloudLabel,
+  cloudStatus,
+}: TopNavProps) {
+  const cloudTone =
+    cloudStatus === "connected"
+      ? "bg-emerald-50 text-emerald-700 border-emerald-200/80"
+      : cloudStatus === "available"
+        ? "bg-sky-50 text-sky-700 border-sky-200/80"
+        : "bg-slate-100 text-slate-600 border-slate-200/80";
+
   return (
     <header className="panel animate-fade-up px-4 py-4 sm:px-6">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
@@ -34,7 +54,20 @@ export function TopNav({ appTitle, currentPage, onNavigate, streakDays, todayPro
           </div>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="flex flex-col gap-3 lg:items-end">
+          <button
+            type="button"
+            onClick={onOpenCloudSync}
+            className={clsx(
+              "inline-flex items-center gap-2 self-start rounded-full border px-4 py-2 text-sm font-medium transition lg:self-end",
+              cloudTone,
+            )}
+          >
+            <Cloud className="h-4 w-4" />
+            云端同步
+          </button>
+
+          <div className="grid gap-3 sm:grid-cols-3">
           <div className="rounded-2xl border border-slate-200/70 bg-white/75 px-4 py-3">
             <div className="flex items-center gap-2 text-sm text-slate-500">
               <Flame className="h-4 w-4 text-amber-500" />
@@ -55,6 +88,7 @@ export function TopNav({ appTitle, currentPage, onNavigate, streakDays, todayPro
               本月目标
             </div>
             <p className="mt-2 text-lg font-semibold text-ink">{monthlyGoal} 天</p>
+          </div>
           </div>
         </div>
       </div>

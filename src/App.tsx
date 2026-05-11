@@ -28,6 +28,7 @@ function getPageFromHash(): AppPage {
 function AppShell() {
   const { data, todaySession, cloudSync, setTodaySession, syncSessionSentences } = useAppContext();
   const [currentPage, setCurrentPage] = useState<AppPage>(getPageFromHash());
+  const [cloudSyncOpen, setCloudSyncOpen] = useState(false);
 
   useEffect(() => {
     const handleHashChange = () => setCurrentPage(getPageFromHash());
@@ -52,9 +53,20 @@ function AppShell() {
     : cloudSync.isSignedIn
       ? "Cloud Connected"
       : "Cloud Available";
+  const cloudStatus = !cloudSync.isConfigured ? "local_only" : cloudSync.isSignedIn ? "connected" : "available";
 
   return (
-    <AppLayout currentPage={currentPage} onNavigate={navigate} stats={stats} todayProgress={todayProgress} cloudLabel={cloudLabel}>
+    <AppLayout
+      currentPage={currentPage}
+      onNavigate={navigate}
+      onOpenCloudSync={() => setCloudSyncOpen(true)}
+      onCloseCloudSync={() => setCloudSyncOpen(false)}
+      stats={stats}
+      todayProgress={todayProgress}
+      cloudLabel={cloudLabel}
+      cloudStatus={cloudStatus}
+      cloudSyncOpen={cloudSyncOpen}
+    >
       {currentPage === "dashboard" ? (
         <DashboardPage stats={stats} todaySession={todaySession} recentSession={recentSession} onStart={() => navigate("daily")} />
       ) : null}
