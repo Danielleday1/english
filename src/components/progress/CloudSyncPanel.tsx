@@ -27,6 +27,8 @@ export function CloudSyncPanel() {
   const [email, setEmail] = useState(cloudSync.userEmail ?? "");
   const [confirmPullOpen, setConfirmPullOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [cooldownUntil, setCooldownUntil] = useState<number>(0);
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     if (cloudSync.userEmail) {
@@ -34,10 +36,31 @@ export function CloudSyncPanel() {
     }
   }, [cloudSync.userEmail]);
 
+  useEffect(() => {
+    if (cooldownUntil <= Date.now()) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [cooldownUntil]);
+
+  const remainingSeconds = Math.max(0, Math.ceil((cooldownUntil - now) / 1000));
+  const canRequestMagicLink = !isSubmitting && remainingSeconds === 0;
+
   async function handleMagicLinkRequest() {
+    if (!canRequestMagicLink) {
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       await requestCloudMagicLink(email);
+      setCooldownUntil(Date.now() + 60_000);
+      setNow(Date.now());
     } finally {
       setIsSubmitting(false);
     }
@@ -124,14 +147,16 @@ export function CloudSyncPanel() {
                 <button
                   type="button"
                   onClick={() => void handleMagicLinkRequest()}
-                  disabled={isSubmitting}
+                  disabled={!canRequestMagicLink}
                   className="rounded-full bg-slate-900 px-5 py-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  发送登录链接
+                  {remainingSeconds > 0 ? `${remainingSeconds} 秒后可重发` : "发送登录链接"}
                 </button>
               </div>
             </div>
-            <p className="text-sm leading-7 text-slate-500">登录方式用邮箱 magic link，不需要单独记密码。第一次连上后，别的电脑也用同一个邮箱进入即可。</p>
+            <p className="text-sm leading-7 text-slate-500">
+              登录方式用邮箱 magic link，不需要单独记密码。第一次连上后，别的电脑也用同一个邮箱进入即可。为了避免邮箱限流，发送后请先等 60 秒，再决定是否重发。
+            </p>
           </div>
         ) : (
           <div className="space-y-4">

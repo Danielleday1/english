@@ -96,6 +96,30 @@ function isLaterTimestamp(left?: string, right?: string): boolean {
   return new Date(left).getTime() > new Date(right).getTime();
 }
 
+function getCloudSyncErrorMessage(error: unknown): string {
+  const fallback = "云端操作失败，请稍后再试。";
+  if (!(error instanceof Error)) {
+    return fallback;
+  }
+
+  const message = error.message.trim();
+  const lower = message.toLowerCase();
+
+  if (lower.includes("email rate limit exceeded")) {
+    return "登录邮件发送太频繁了，Supabase 暂时限流。先等至少 60 秒再试；如果今天已经连续发过几次，内置邮箱服务可能需要等约 1 小时恢复。";
+  }
+
+  if (lower.includes("security purposes") || lower.includes("can only request this after")) {
+    return "这次发送得太快了。为安全起见，请等 60 秒后再重新发送登录链接。";
+  }
+
+  if (lower.includes("email link is invalid or has expired")) {
+    return "这封登录邮件已经失效了，请回到页面重新发送一封新的登录链接。";
+  }
+
+  return message || fallback;
+}
+
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [data, setData] = useState<AppData>(() => ensureTodaySession(loadAppData()));
   const [cloudSync, setCloudSync] = useState<CloudSyncState>(createInitialCloudSyncState);
@@ -186,7 +210,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setCloudSync((current) => ({
         ...current,
         phase: "error",
-        message: error instanceof Error ? error.message : "云端状态检查失败，请稍后再试。",
+        message: getCloudSyncErrorMessage(error),
       }));
     }
   }
@@ -219,7 +243,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setCloudSync((current) => ({
         ...current,
         phase: "error",
-        message: error instanceof Error ? error.message : "上传到云端失败，请稍后再试。",
+        message: getCloudSyncErrorMessage(error),
       }));
       throw error;
     }
@@ -475,7 +499,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setCloudSync((current) => ({
         ...current,
         phase: "error",
-        message: error instanceof Error ? error.message : "发送登录链接失败，请稍后再试。",
+        message: getCloudSyncErrorMessage(error),
       }));
       throw error;
     }
@@ -514,7 +538,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setCloudSync((current) => ({
         ...current,
         phase: "error",
-        message: error instanceof Error ? error.message : "从云端恢复失败，请稍后再试。",
+        message: getCloudSyncErrorMessage(error),
       }));
       throw error;
     }
@@ -541,7 +565,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setCloudSync((current) => ({
         ...current,
         phase: "error",
-        message: error instanceof Error ? error.message : "退出云端同步失败，请稍后再试。",
+        message: getCloudSyncErrorMessage(error),
       }));
       throw error;
     }
