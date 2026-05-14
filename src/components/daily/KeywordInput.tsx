@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { BlindListeningRecord } from "../../types/study";
 import { normalizeKeywords } from "../../utils/study";
 import { Slider } from "../common/Slider";
@@ -8,7 +9,11 @@ interface KeywordInputProps {
 }
 
 export function KeywordInput({ value, onChange }: KeywordInputProps) {
-  const keywordText = value.keywords.join(", ");
+  const [keywordText, setKeywordText] = useState(value.keywords.join(", "));
+
+  useEffect(() => {
+    setKeywordText(value.keywords.join(", "));
+  }, [value.keywords]);
 
   return (
     <div className="space-y-5">
@@ -17,7 +22,11 @@ export function KeywordInput({ value, onChange }: KeywordInputProps) {
         <textarea
           className="field min-h-28"
           value={keywordText}
-          onChange={(event) => onChange({ ...value, keywords: normalizeKeywords(event.target.value) })}
+          onChange={(event) => {
+            const nextText = event.target.value;
+            setKeywordText(nextText);
+            onChange({ ...value, keywords: normalizeKeywords(nextText) });
+          }}
           placeholder="例如：launch, roadmap, feedback loop"
         />
         <p className="mt-2 text-sm text-slate-400">已记录 {value.keywords.length} 个关键词</p>

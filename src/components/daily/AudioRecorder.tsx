@@ -20,6 +20,7 @@ export function AudioRecorder({ sessionId, recordingType, recordingId, onSaved, 
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const startTimeRef = useRef<number>(0);
+  const timerRef = useRef<number | null>(null);
   const [status, setStatus] = useState<RecorderStatus>("idle");
   const [error, setError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -66,6 +67,10 @@ export function AudioRecorder({ sessionId, recordingType, recordingId, onSaved, 
 
   useEffect(() => {
     return () => {
+      if (timerRef.current) {
+        window.clearInterval(timerRef.current);
+      }
+
       if (previewUrl) {
         URL.revokeObjectURL(previewUrl);
       }
@@ -90,6 +95,13 @@ export function AudioRecorder({ sessionId, recordingType, recordingId, onSaved, 
       mediaRecorderRef.current = recorder;
       chunksRef.current = [];
       startTimeRef.current = Date.now();
+      setPendingBlob(null);
+      setDuration(0);
+
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+      }
+      setPreviewUrl(null);
 
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
@@ -98,6 +110,11 @@ export function AudioRecorder({ sessionId, recordingType, recordingId, onSaved, 
       };
 
       recorder.onstop = () => {
+        if (timerRef.current) {
+          window.clearInterval(timerRef.current);
+          timerRef.current = null;
+        }
+
         const blob = new Blob(chunksRef.current, { type: recorder.mimeType });
         const nextDuration = Math.max(Math.round((Date.now() - startTimeRef.current) / 1000), 1);
 
@@ -113,6 +130,9 @@ export function AudioRecorder({ sessionId, recordingType, recordingId, onSaved, 
       };
 
       recorder.start();
+      timerRef.current = window.setInterval(() => {
+        setDuration(Math.max(Math.floor((Date.now() - startTimeRef.current) / 1000), 0));
+      }, 250);
       setStatus("recording");
     } catch {
       setError("麦克风权限未开启或录音启动失败。你仍然可以先完成文本练习。");
@@ -120,6 +140,10 @@ export function AudioRecorder({ sessionId, recordingType, recordingId, onSaved, 
   }
 
   function stopRecording() {
+    if (timerRef.current) {
+      window.clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
     mediaRecorderRef.current?.stop();
   }
 
