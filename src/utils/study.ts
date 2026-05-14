@@ -1,4 +1,4 @@
-import { DAILY_PLANNED_MINUTES, STEP_CONFIG } from "../constants/options";
+import { STEP_CONFIG } from "../constants/options";
 import type {
   DailyReview,
   IELTSListeningRecord,
@@ -12,6 +12,7 @@ import type {
   WorkplaceSpeakingRecord,
 } from "../types/study";
 import { getLocalDateKey } from "./date";
+import { getPracticeSteps, getPlannedMinutes, normalizeIELTSPracticeType, normalizePracticeMode } from "./practiceMode";
 
 export function createId(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
@@ -126,10 +127,14 @@ export function createEmptySession(date = new Date()): StudySession {
   const now = date.toISOString();
   const sessionId = createId("session");
   const sentences = Array.from({ length: 3 }, () => createEmptySentence(sessionId));
+  const practiceMode = "workplace";
+  const ieltsPracticeType = "none";
 
   return {
     id: sessionId,
     date: getLocalDateKey(date),
+    practiceMode,
+    ieltsPracticeType,
     material: createEmptyMaterial(date),
     warmup: createEmptyWarmup(),
     blindListening: {
@@ -144,7 +149,7 @@ export function createEmptySession(date = new Date()): StudySession {
     ieltsListening: createEmptyIELTSListening(),
     ieltsSpeaking: createEmptyIELTSSpeaking(),
     review: createEmptyDailyReview(),
-    plannedMinutes: DAILY_PLANNED_MINUTES,
+    plannedMinutes: getPlannedMinutes(practiceMode, ieltsPracticeType),
     actualMinutes: 0,
     completedSteps: [],
     isCompleted: false,
@@ -182,8 +187,14 @@ export function calculateAccuracy(totalQuestions: number, correctAnswers: number
 }
 
 export function calculateSessionProgress(session: StudySession): number {
-  const stepRatio = session.completedSteps.length / 10;
-  const minuteRatio = Math.min(getEffectiveActualMinutes(session) / DAILY_PLANNED_MINUTES, 1);
+  const practiceMode = normalizePracticeMode(session.practiceMode);
+  const ieltsPracticeType = normalizeIELTSPracticeType(practiceMode, session.ieltsPracticeType);
+  const steps = getPracticeSteps(practiceMode, ieltsPracticeType);
+  const visibleStepIds = new Set(steps.map((step) => step.id));
+  const completedVisibleSteps = session.completedSteps.filter((stepId) => visibleStepIds.has(stepId as never));
+  const plannedMinutes = getPlannedMinutes(practiceMode, ieltsPracticeType);
+  const stepRatio = steps.length === 0 ? 0 : completedVisibleSteps.length / steps.length;
+  const minuteRatio = Math.min(getEffectiveActualMinutes(session) / plannedMinutes, 1);
   return Math.round((stepRatio * 0.7 + minuteRatio * 0.3) * 100);
 }
 
@@ -201,7 +212,12 @@ export function getRecordedMinutes(session: StudySession): number {
 }
 
 export function getEffectiveActualMinutes(session: StudySession): number {
-  return Math.max(session.actualMinutes, getCompletedStepMinutes(session.completedSteps), getRecordedMinutes(session));
+  const practiceMode = normalizePracticeMode(session.practiceMode);
+  const ieltsPracticeType = normalizeIELTSPracticeType(practiceMode, session.ieltsPracticeType);
+  const stepMinutes = getPracticeSteps(practiceMode, ieltsPracticeType).reduce((total, step) => {
+    return session.completedSteps.includes(step.id) ? total + step.minutes : total;
+  }, 0);
+  return Math.max(session.actualMinutes, stepMinutes, getRecordedMinutes(session));
 }
 
 export function normalizeActualMinutes(session: StudySession): StudySession {

@@ -1,5 +1,6 @@
 import { MONTHLY_GOAL_DAYS } from "../constants/options";
-import type { AppData, CloudSyncPreferences } from "../types/study";
+import type { AppData, CloudSyncPreferences, StudySession } from "../types/study";
+import { getPlannedMinutes, normalizeIELTSPracticeType, normalizePracticeMode } from "../utils/practiceMode";
 
 const STORAGE_KEY = "xiaonituan-english-camp-v1";
 const CLOUD_PREFERENCES_KEY = "xiaonituan-english-camp-cloud-v1";
@@ -10,6 +11,18 @@ export function getDefaultAppData(): AppData {
     sentenceBank: [],
     recordings: [],
     monthlyGoalDays: MONTHLY_GOAL_DAYS,
+  };
+}
+
+function normalizeStoredSession(session: StudySession): StudySession {
+  const practiceMode = normalizePracticeMode(session.practiceMode);
+  const ieltsPracticeType = normalizeIELTSPracticeType(practiceMode, session.ieltsPracticeType);
+
+  return {
+    ...session,
+    practiceMode,
+    ieltsPracticeType,
+    plannedMinutes: session.plannedMinutes || getPlannedMinutes(practiceMode, ieltsPracticeType),
   };
 }
 
@@ -28,7 +41,7 @@ export function loadAppData(): AppData {
     return {
       ...getDefaultAppData(),
       ...parsed,
-      sessions: parsed.sessions ?? [],
+      sessions: (parsed.sessions ?? []).map((session) => normalizeStoredSession(session)),
       sentenceBank: parsed.sentenceBank ?? [],
       recordings: parsed.recordings ?? [],
       monthlyGoalDays: parsed.monthlyGoalDays ?? MONTHLY_GOAL_DAYS,

@@ -7,6 +7,8 @@ export type MasteryType = "weak" | "normal" | "strong";
 export type RecordingType = "workplace" | "ielts";
 export type IELTSQuestionType = "completion" | "choice" | "matching" | "map" | "multiple_choice" | "mixed";
 export type LinkStatus = "valid" | "invalid" | "empty";
+export type PracticeMode = "workplace" | "ielts" | "mixed";
+export type IELTSPracticeType = "listening" | "speaking" | "both" | "none";
 
 export interface Material {
   id: string;
@@ -126,6 +128,8 @@ export interface DailyReview {
 export interface StudySession {
   id: string;
   date: string;
+  practiceMode: PracticeMode;
+  ieltsPracticeType: IELTSPracticeType;
   material: Material;
   warmup: WarmupRecord;
   blindListening: BlindListeningRecord;

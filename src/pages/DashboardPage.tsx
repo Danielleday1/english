@@ -6,7 +6,8 @@ import { ProgressBar } from "../components/common/ProgressBar";
 import { Tag } from "../components/common/Tag";
 import type { DashboardStats, StudySession } from "../types/study";
 import { minutesToLabel } from "../utils/date";
-import { getEffectiveActualMinutes } from "../utils/study";
+import { calculateSessionProgress, getEffectiveActualMinutes } from "../utils/study";
+import { getPracticeSummary, normalizePracticeSession } from "../utils/practiceMode";
 
 interface DashboardPageProps {
   stats: DashboardStats;
@@ -28,16 +29,18 @@ function getTodayStatus(session: StudySession): string {
 }
 
 export function DashboardPage({ stats, todaySession, recentSession, onStart }: DashboardPageProps) {
-  const hasDraft = !todaySession.isCompleted && (todaySession.completedSteps.length > 0 || todaySession.material.title.trim());
-  const sentenceCount = todaySession.sentences.filter((sentence) => sentence.text.trim()).length;
-  const todayActualMinutes = getEffectiveActualMinutes(todaySession);
+  const normalizedTodaySession = normalizePracticeSession(todaySession);
+  const hasDraft = !normalizedTodaySession.isCompleted && (normalizedTodaySession.completedSteps.length > 0 || normalizedTodaySession.material.title.trim());
+  const sentenceCount = normalizedTodaySession.sentences.filter((sentence) => sentence.text.trim()).length;
+  const todayActualMinutes = getEffectiveActualMinutes(normalizedTodaySession);
+  const todaySummary = getPracticeSummary(normalizedTodaySession);
 
   return (
     <div className="space-y-6">
       <PageHeader
         eyebrow="Dashboard"
         title="早上好，小泥团"
-        description="今天完成 120 分钟英语听说训练，让口语和听力都往前走一步。"
+        description="今天选择一个训练模式，完成一个闭环，让口语和听力都往前走一步。"
         actions={
           <button
             type="button"
@@ -59,28 +62,25 @@ export function DashboardPage({ stats, todaySession, recentSession, onStart }: D
           <div className="mt-5 grid gap-4 md:grid-cols-2">
             <div className="rounded-2xl bg-white/85 p-4">
               <p className="text-sm text-slate-400">今日目标</p>
-              <p className="mt-2 text-base font-semibold text-ink">120 分钟</p>
+              <p className="mt-2 text-base font-semibold text-ink">{normalizedTodaySession.plannedMinutes} 分钟</p>
             </div>
             <div className="rounded-2xl bg-white/85 p-4">
               <p className="text-sm text-slate-400">今日状态</p>
               <div className="mt-2">
-                <Tag tone={todaySession.isCompleted ? "success" : "neutral"}>{getTodayStatus(todaySession)}</Tag>
+                <Tag tone={normalizedTodaySession.isCompleted ? "success" : "neutral"}>{getTodayStatus(normalizedTodaySession)}</Tag>
               </div>
             </div>
             <div className="rounded-2xl bg-white/85 p-4">
-              <p className="text-sm text-slate-400">职场英语</p>
-              <p className="mt-2 text-sm leading-7 text-slate-600">听力精听 + 跟读 + 口语复述</p>
+              <p className="text-sm text-slate-400">今日模式</p>
+              <p className="mt-2 text-sm leading-7 text-slate-600">{todaySummary.label}</p>
             </div>
             <div className="rounded-2xl bg-white/85 p-4">
-              <p className="text-sm text-slate-400">雅思英语</p>
-              <p className="mt-2 text-sm leading-7 text-slate-600">听力记录 + 口语录音</p>
+              <p className="text-sm text-slate-400">任务摘要</p>
+              <p className="mt-2 text-sm leading-7 text-slate-600">{todaySummary.detail}</p>
             </div>
           </div>
           <div className="mt-5">
-            <ProgressBar
-              value={Math.round(((todaySession.completedSteps.length / 10) * 0.7 + Math.min(todayActualMinutes / 120, 1) * 0.3) * 100)}
-              label="今日推进进度"
-            />
+            <ProgressBar value={calculateSessionProgress(normalizedTodaySession)} label="今日推进进度" />
           </div>
         </article>
 
