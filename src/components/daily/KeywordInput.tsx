@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { BlindListeningRecord } from "../../types/study";
 import { normalizeKeywords } from "../../utils/study";
 import { Slider } from "../common/Slider";
@@ -9,11 +9,16 @@ interface KeywordInputProps {
 }
 
 export function KeywordInput({ value, onChange }: KeywordInputProps) {
+  const serializedKeywords = JSON.stringify(value.keywords);
   const [keywordText, setKeywordText] = useState(value.keywords.join(", "));
+  const lastSyncedKeywordsRef = useRef(serializedKeywords);
 
   useEffect(() => {
-    setKeywordText(value.keywords.join(", "));
-  }, [value.keywords]);
+    if (serializedKeywords !== lastSyncedKeywordsRef.current) {
+      setKeywordText(value.keywords.join(", "));
+      lastSyncedKeywordsRef.current = serializedKeywords;
+    }
+  }, [serializedKeywords, value.keywords]);
 
   return (
     <div className="space-y-5">
