@@ -96,6 +96,67 @@ function isLaterTimestamp(left?: string, right?: string): boolean {
   return new Date(left).getTime() > new Date(right).getTime();
 }
 
+function getTimestamp(value?: string): number {
+  if (!value) {
+    return 0;
+  }
+
+  const timestamp = new Date(value).getTime();
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+function mergeSessions(localSessions: StudySession[], remoteSessions: StudySession[]): StudySession[] {
+  const sessionsByDate = new Map<string, StudySession>();
+
+  for (const session of [...localSessions, ...remoteSessions]) {
+    const existing = sessionsByDate.get(session.date);
+    if (!existing || getTimestamp(session.updatedAt) >= getTimestamp(existing.updatedAt)) {
+      sessionsByDate.set(session.date, session);
+    }
+  }
+
+  return sortSessions(Array.from(sessionsByDate.values()));
+}
+
+function mergeSentences(localSentences: Sentence[], remoteSentences: Sentence[], sessions: StudySession[]): Sentence[] {
+  const sentenceMap = new Map<string, Sentence>();
+
+  for (const sentence of [...localSentences, ...remoteSentences, ...sessions.flatMap((session) => session.sentences)]) {
+    const existing = sentenceMap.get(sentence.id);
+    if (!existing || getTimestamp(sentence.updatedAt) >= getTimestamp(existing.updatedAt)) {
+      sentenceMap.set(sentence.id, sentence);
+    }
+  }
+
+  return Array.from(sentenceMap.values());
+}
+
+function mergeRecordings(localRecordings: Recording[], remoteRecordings: Recording[]): Recording[] {
+  const recordingMap = new Map<string, Recording>();
+
+  for (const recording of [...localRecordings, ...remoteRecordings]) {
+    const existing = recordingMap.get(recording.id);
+    const currentTimestamp = Math.max(getTimestamp(recording.syncedAt), getTimestamp(recording.createdAt));
+    const existingTimestamp = existing ? Math.max(getTimestamp(existing.syncedAt), getTimestamp(existing.createdAt)) : 0;
+
+    if (!existing || currentTimestamp >= existingTimestamp) {
+      recordingMap.set(recording.id, recording);
+    }
+  }
+
+  return Array.from(recordingMap.values());
+}
+
+function mergeAppData(localData: AppData, remoteData: AppData): AppData {
+  const sessions = mergeSessions(localData.sessions, remoteData.sessions);
+  return {
+    sessions,
+    sentenceBank: mergeSentences(localData.sentenceBank, remoteData.sentenceBank, sessions),
+    recordings: mergeRecordings(localData.recordings, remoteData.recordings),
+    monthlyGoalDays: remoteData.monthlyGoalDays || localData.monthlyGoalDays,
+  };
+}
+
 function getCloudSyncErrorMessage(error: unknown): string {
   const fallback = "云端操作失败，请稍后再试。";
   if (!(error instanceof Error)) {
@@ -282,6 +343,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    if (cloudSync.restoreRecommended) {
+      return;
+    }
+
     if (!hasPersistedLearningData(data) && cloudSync.hasRemoteSnapshot) {
       return;
     }
@@ -300,7 +365,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         window.clearTimeout(autoSyncTimerRef.current);
       }
     };
-  }, [cloudSync.autoSyncEnabled, cloudSync.hasRemoteSnapshot, cloudSync.isConfigured, cloudSync.isSignedIn, cloudSync.phase, data]);
+  }, [cloudSync.autoSyncEnabled, cloudSync.hasRemoteSnapshot, cloudSync.isConfigured, cloudSync.isSignedIn, cloudSync.phase, cloudSync.restoreRecommended, data]);
 
   useEffect(() => {
     if (!cloudSync.isConfigured || !cloudSync.isSignedIn || !cloudSync.hasRemoteSnapshot) {
@@ -312,12 +377,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (hasPersistedLearningData(data)) {
+      if (cloudSync.restoreRecommended) {
+        autoRestoreAttemptedRef.current = true;
+        void mergeCloudBackup();
+      }
       return;
     }
 
     autoRestoreAttemptedRef.current = true;
     void pullCloudBackup();
-  }, [cloudSync.hasRemoteSnapshot, cloudSync.isConfigured, cloudSync.isSignedIn, cloudSync.phase, data]);
+  }, [cloudSync.hasRemoteSnapshot, cloudSync.isConfigured, cloudSync.isSignedIn, cloudSync.phase, cloudSync.restoreRecommended, data]);
 
   function setTodaySession(nextSession: StudySession) {
     setData((current) => ({
@@ -529,6 +598,45 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         lastSyncedAt: result.syncedAt,
         remoteUpdatedAt: result.remoteUpdatedAt,
         message: "云端数据已经恢复到当前浏览器，你现在可以继续学习了。",
+      }));
+      window.setTimeout(() => {
+        skipAutoSyncRef.current = false;
+      }, 0);
+    } catch (error) {
+      skipAutoSyncRef.current = false;
+      setCloudSync((current) => ({
+        ...current,
+        phase: "error",
+        message: getCloudSyncErrorMessage(error),
+      }));
+      throw error;
+    }
+  }
+
+  async function mergeCloudBackup(): Promise<void> {
+    setCloudSync((current) => ({
+      ...current,
+      phase: "syncing",
+      message: "检测到另一台电脑有更新，正在把云端内容合并到当前设备...",
+    }));
+
+    try {
+      const result = await pullDataFromCloud({ clearExistingAudio: false });
+      const nextData = ensureTodaySession(mergeAppData(data, result.data));
+      skipAutoSyncRef.current = true;
+      lastSyncedSignatureRef.current = serializeAppData(nextData);
+      persistCloudPreferences(true, result.syncedAt);
+      setData(nextData);
+      setCloudSync((current) => ({
+        ...current,
+        phase: "ready",
+        autoSyncEnabled: true,
+        hasRemoteSnapshot: true,
+        restoreRecommended: false,
+        restoreReason: undefined,
+        lastSyncedAt: result.syncedAt,
+        remoteUpdatedAt: result.remoteUpdatedAt,
+        message: "云端新记录已经合并到这台电脑，你现在应该能看到另一台设备上的练习内容。",
       }));
       window.setTimeout(() => {
         skipAutoSyncRef.current = false;

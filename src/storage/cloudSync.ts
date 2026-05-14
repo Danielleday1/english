@@ -254,7 +254,7 @@ export async function pushDataToCloud(data: AppData): Promise<{ syncedAt: string
   };
 }
 
-export async function pullDataFromCloud(): Promise<{ data: AppData; syncedAt: string; remoteUpdatedAt: string }> {
+export async function pullDataFromCloud(options?: { clearExistingAudio?: boolean }): Promise<{ data: AppData; syncedAt: string; remoteUpdatedAt: string }> {
   const client = getClientOrThrow();
   const row = await fetchSnapshotRow();
   if (!row) {
@@ -278,7 +278,10 @@ export async function pullDataFromCloud(): Promise<{ data: AppData; syncedAt: st
     });
   }
 
-  await clearAudioStore();
+  if (options?.clearExistingAudio !== false) {
+    await clearAudioStore();
+  }
+
   for (const item of recordingsToRestore) {
     await saveAudioBlob(item.blobKey, item.blob);
   }
