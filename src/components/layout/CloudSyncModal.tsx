@@ -21,8 +21,10 @@ export function CloudSyncModal({ open, onClose }: CloudSyncModalProps) {
               Cloud Sync
             </div>
             <div>
-              <h2 className="text-2xl font-semibold text-ink">云端同步与跨电脑使用</h2>
-              <p className="mt-2 text-sm leading-7 text-slate-500">这里处理设备同步、登录状态和手动恢复，不打断你的复盘和学习流。</p>
+              <h2 className="text-2xl font-semibold text-ink">云端同步</h2>
+              <p className="mt-2 text-sm leading-7 text-slate-500">
+                本机优先保存，联网后自动同步。换电脑登录同一账号后，会自动恢复最新记录。
+              </p>
             </div>
           </div>
 

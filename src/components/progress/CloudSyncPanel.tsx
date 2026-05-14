@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
-import { Cloud, CloudDownload, CloudUpload, LogOut, Mail } from "lucide-react";
+import clsx from "clsx";
+import { ChevronDown, Cloud, CloudDownload, CloudUpload, LogOut, Mail, RefreshCw } from "lucide-react";
 import { useAppContext } from "../../context/AppContext";
+import type { CloudSyncDisplayStatus } from "../../types/study";
 import { ConfirmDialog } from "../common/ConfirmDialog";
 
 function formatTimestamp(value?: string): string {
   if (!value) {
-    return "还没有同步记录";
+    return "暂无记录";
   }
 
   const date = new Date(value);
@@ -22,19 +24,50 @@ function formatTimestamp(value?: string): string {
   });
 }
 
+function getStatusLabel(status: CloudSyncDisplayStatus): string {
+  const labels: Record<CloudSyncDisplayStatus, string> = {
+    synced: "已同步",
+    syncing: "同步中",
+    pending: "有未同步内容",
+    failed: "同步失败",
+    offline: "离线保存中",
+    signed_out: "未登录",
+    local_only: "仅本机保存",
+  };
+  return labels[status];
+}
+
+function getStatusTone(status: CloudSyncDisplayStatus): string {
+  if (status === "synced") {
+    return "border-emerald-200 bg-emerald-50/80 text-emerald-700";
+  }
+  if (status === "syncing") {
+    return "border-sky-200 bg-sky-50/80 text-sky-700";
+  }
+  if (status === "pending") {
+    return "border-amber-200 bg-amber-50/80 text-amber-700";
+  }
+  if (status === "failed") {
+    return "border-rose-200 bg-rose-50/80 text-rose-700";
+  }
+  return "border-slate-200 bg-slate-50 text-slate-600";
+}
+
 export function CloudSyncPanel() {
-  const { cloudSync, requestCloudMagicLink, pushCloudBackup, pullCloudBackup, signOutCloudUser } = useAppContext();
-  const [email, setEmail] = useState(cloudSync.userEmail ?? "");
+  const { cloudSync, requestCloudMagicLink, syncCloudNow, pushCloudBackup, pullCloudBackup, signOutCloudUser } = useAppContext();
+  const [email, setEmail] = useState(cloudSync.accountEmail ?? cloudSync.userEmail ?? "");
   const [confirmPullOpen, setConfirmPullOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [cooldownUntil, setCooldownUntil] = useState<number>(0);
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
-    if (cloudSync.userEmail) {
-      setEmail(cloudSync.userEmail);
+    const nextEmail = cloudSync.accountEmail ?? cloudSync.userEmail;
+    if (nextEmail) {
+      setEmail(nextEmail);
     }
-  }, [cloudSync.userEmail]);
+  }, [cloudSync.accountEmail, cloudSync.userEmail]);
 
   useEffect(() => {
     if (cooldownUntil <= Date.now()) {
@@ -51,47 +84,25 @@ export function CloudSyncPanel() {
   const remainingSeconds = Math.max(0, Math.ceil((cooldownUntil - now) / 1000));
   const canRequestMagicLink = !isSubmitting && remainingSeconds === 0;
 
+  async function runAction(action: () => Promise<void>) {
+    setIsSubmitting(true);
+    try {
+      await action();
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
   async function handleMagicLinkRequest() {
     if (!canRequestMagicLink) {
       return;
     }
 
-    setIsSubmitting(true);
-    try {
+    await runAction(async () => {
       await requestCloudMagicLink(email);
       setCooldownUntil(Date.now() + 60_000);
       setNow(Date.now());
-    } finally {
-      setIsSubmitting(false);
-    }
-  }
-
-  async function handlePush() {
-    setIsSubmitting(true);
-    try {
-      await pushCloudBackup();
-    } finally {
-      setIsSubmitting(false);
-    }
-  }
-
-  async function handlePull() {
-    setIsSubmitting(true);
-    try {
-      await pullCloudBackup();
-      setConfirmPullOpen(false);
-    } finally {
-      setIsSubmitting(false);
-    }
-  }
-
-  async function handleSignOut() {
-    setIsSubmitting(true);
-    try {
-      await signOutCloudUser();
-    } finally {
-      setIsSubmitting(false);
-    }
+    });
   }
 
   return (
@@ -103,16 +114,15 @@ export function CloudSyncPanel() {
             Cloud Sync
           </div>
           <div>
-            <h3 className="text-lg font-semibold text-ink">跨电脑使用</h3>
-            <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-500">
-              现在可以把学习记录和录音同步到云端。以后在别的电脑打开同一个网页，只要登录同一个邮箱，新电脑会优先自动恢复一次历史数据，然后继续本地使用和自动同步。
+            <h3 className="text-lg font-semibold text-ink">云端同步</h3>
+            <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-500">
+              练习记录会自动保存在本机，并在联网时同步到云端。换电脑登录同一账号后，会自动恢复最新数据。
             </p>
           </div>
         </div>
 
-        <div className="rounded-2xl border border-slate-200/70 bg-white/75 px-4 py-3 text-sm text-slate-600">
-          <p>当前状态：{cloudSync.phase === "setup_required" ? "仅本地保存" : cloudSync.isSignedIn ? "已连接云端" : "未登录云端"}</p>
-          <p className="mt-2">最后同步：{formatTimestamp(cloudSync.lastSyncedAt)}</p>
+        <div className={clsx("rounded-2xl border px-4 py-3 text-sm font-medium", getStatusTone(cloudSync.displayStatus))}>
+          {getStatusLabel(cloudSync.displayStatus)}
         </div>
       </div>
 
@@ -120,8 +130,8 @@ export function CloudSyncPanel() {
         {!cloudSync.isConfigured ? (
           <div className="space-y-3">
             <p className="text-sm leading-7 text-slate-600">
-              这台站点还没有接上 Supabase，所以现在仍然是本地保存。把 `VITE_SUPABASE_URL` 和 `VITE_SUPABASE_ANON_KEY`
-              配好后，这里就会变成可登录的云端同步入口。
+              这台站点还没有接上 Supabase，所以现在仍然是本机保存。配置好 `VITE_SUPABASE_URL` 和 `VITE_SUPABASE_ANON_KEY`
+              后，这里就会变成自动同步入口。
             </p>
             <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-500">
               本地开发：在 `.env.local` 里配置
@@ -155,78 +165,119 @@ export function CloudSyncPanel() {
               </div>
             </div>
             <p className="text-sm leading-7 text-slate-500">
-              登录方式用邮箱 magic link，不需要单独记密码。第一次连上后，别的电脑也用同一个邮箱进入即可。为了避免邮箱限流，发送后请先等 60 秒，再决定是否重发。
+              登录方式使用邮箱 magic link，不需要记密码。首次登录时，系统会自动判断本机和云端数据，并恢复最新记录。
             </p>
           </div>
         ) : (
-          <div className="space-y-4">
-            <div className="grid gap-3 md:grid-cols-3">
+          <div className="space-y-5">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
                 <p>当前账号</p>
-                <p className="mt-2 font-medium text-ink">{cloudSync.userEmail}</p>
+                <p className="mt-2 font-medium text-ink">{cloudSync.accountEmail ?? cloudSync.userEmail}</p>
               </div>
               <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                <p>云端最近更新</p>
-                <p className="mt-2 font-medium text-ink">{formatTimestamp(cloudSync.remoteUpdatedAt)}</p>
+                <p>同步状态</p>
+                <p className="mt-2 font-medium text-ink">{getStatusLabel(cloudSync.displayStatus)}</p>
+              </div>
+              <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                <p>最后同步时间</p>
+                <p className="mt-2 font-medium text-ink">{formatTimestamp(cloudSync.lastSyncedAt)}</p>
               </div>
               <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
                 <p>自动同步</p>
-                <p className="mt-2 font-medium text-ink">{cloudSync.autoSyncEnabled ? "已开启" : "还没开始"}</p>
+                <p className="mt-2 font-medium text-ink">{cloudSync.autoSyncEnabled ? "已开启" : "未开启"}</p>
+              </div>
+              <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                <p>本机数据更新时间</p>
+                <p className="mt-2 font-medium text-ink">{formatTimestamp(cloudSync.localUpdatedAt)}</p>
+              </div>
+              <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                <p>云端数据更新时间</p>
+                <p className="mt-2 font-medium text-ink">{formatTimestamp(cloudSync.cloudUpdatedAt ?? cloudSync.remoteUpdatedAt)}</p>
               </div>
             </div>
 
-            {cloudSync.restoreRecommended ? (
-              <div className="rounded-2xl border border-sky-200 bg-sky-50/80 px-4 py-3 text-sm leading-7 text-sky-900">
-                <p className="font-medium">建议先恢复一次云端数据</p>
-                <p className="mt-1">{cloudSync.restoreReason ?? "检测到云端可能比本地更新，先恢复会更稳。"}</p>
-              </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={() => void runAction(syncCloudNow)}
+                disabled={isSubmitting || cloudSync.isSyncing}
+                className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-5 py-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <RefreshCw className={clsx("h-4 w-4", cloudSync.isSyncing && "animate-spin")} />
+                立即同步
+              </button>
+              <p className="text-sm leading-7 text-slate-500">
+                文字记录和已保存录音都会参与同步，录音也会继续保留在本机作为缓存。
+              </p>
+            </div>
+
+            {cloudSync.message ? (
+              <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm leading-7 text-slate-500">{cloudSync.message}</div>
             ) : null}
 
-            <div className="flex flex-wrap gap-3">
+            <div className="rounded-[24px] border border-slate-200/70 bg-white/70">
               <button
                 type="button"
-                onClick={() => void handlePush()}
-                disabled={isSubmitting}
-                className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2.5 text-sm text-white disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={() => setAdvancedOpen((open) => !open)}
+                className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-medium text-slate-700"
               >
-                <CloudUpload className="h-4 w-4" />
-                上传当前数据到云端
+                高级操作
+                <ChevronDown className={clsx("h-4 w-4 transition", advancedOpen && "rotate-180")} />
               </button>
-              <button
-                type="button"
-                onClick={() => setConfirmPullOpen(true)}
-                disabled={isSubmitting || !cloudSync.hasRemoteSnapshot}
-                className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-4 py-2.5 text-sm text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <CloudDownload className="h-4 w-4" />
-                从云端恢复到这台电脑
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleSignOut()}
-                disabled={isSubmitting}
-                className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2.5 text-sm text-slate-600 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <LogOut className="h-4 w-4" />
-                退出云端
-              </button>
-            </div>
 
-            <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm leading-7 text-slate-500">
-              第一次建议先点一次“上传当前数据到云端”。之后你继续练习时，新的改动会自动往云端同步；新电脑首次登录如果本地是空的，会自动恢复历史记录，不需要你每次手动点恢复。
+              {advancedOpen ? (
+                <div className="space-y-4 border-t border-slate-200/70 px-4 py-4">
+                  <p className="text-sm leading-7 text-slate-500">
+                    通常不需要使用这些操作。只有在自动同步异常、换设备恢复失败或需要强制覆盖数据时再使用。
+                  </p>
+                  <div className="flex flex-wrap gap-3">
+                    <button
+                      type="button"
+                      onClick={() => void runAction(pushCloudBackup)}
+                      disabled={isSubmitting}
+                      className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2.5 text-sm text-white disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <CloudUpload className="h-4 w-4" />
+                      强制上传本机数据到云端
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmPullOpen(true)}
+                      disabled={isSubmitting || !cloudSync.hasRemoteSnapshot}
+                      className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-4 py-2.5 text-sm text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <CloudDownload className="h-4 w-4" />
+                      强制从云端恢复到这台电脑
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void runAction(signOutCloudUser)}
+                      disabled={isSubmitting}
+                      className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2.5 text-sm text-slate-600 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <LogOut className="h-4 w-4" />
+                      退出云端
+                    </button>
+                  </div>
+                </div>
+              ) : null}
             </div>
           </div>
         )}
       </div>
 
-      {cloudSync.message ? <p className="mt-4 text-sm leading-7 text-slate-500">{cloudSync.message}</p> : null}
+      {cloudSync.message && !cloudSync.isSignedIn ? <p className="mt-4 text-sm leading-7 text-slate-500">{cloudSync.message}</p> : null}
 
       <ConfirmDialog
         open={confirmPullOpen}
-        title="确认从云端恢复？"
-        description="恢复会覆盖当前浏览器里的本地数据。建议先做一次本地备份，再从云端拉取。"
+        title="确认强制从云端恢复？"
+        description="这会用云端数据覆盖当前浏览器里的本机数据。通常只在自动同步异常时使用。"
         confirmLabel="确认恢复"
-        onConfirm={() => void handlePull()}
+        onConfirm={() => void runAction(async () => {
+          await pullCloudBackup();
+          setConfirmPullOpen(false);
+        })}
         onCancel={() => setConfirmPullOpen(false)}
       />
     </section>

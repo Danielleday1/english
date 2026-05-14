@@ -19,6 +19,8 @@ export interface Material {
   difficulty: DifficultyType;
   notes?: string;
   createdAt: string;
+  updatedAt?: string;
+  deletedAt?: string;
 }
 
 export interface Sentence {
@@ -33,6 +35,7 @@ export interface Sentence {
   lastReviewedAt?: string;
   createdAt: string;
   updatedAt: string;
+  deletedAt?: string;
 }
 
 export interface Recording {
@@ -45,6 +48,8 @@ export interface Recording {
   cloudPath?: string;
   syncedAt?: string;
   createdAt: string;
+  updatedAt?: string;
+  deletedAt?: string;
 }
 
 export interface WarmupRecord {
@@ -146,6 +151,7 @@ export interface StudySession {
   isCompleted: boolean;
   createdAt: string;
   updatedAt: string;
+  deletedAt?: string;
 }
 
 export interface DashboardStats {
@@ -205,16 +211,26 @@ export interface AppData {
 }
 
 export type CloudSyncPhase = "setup_required" | "signed_out" | "checking" | "ready" | "syncing" | "error";
+export type CloudSyncDisplayStatus = "synced" | "syncing" | "pending" | "failed" | "offline" | "signed_out" | "local_only";
 
 export interface CloudSyncState {
   phase: CloudSyncPhase;
   isConfigured: boolean;
   isSignedIn: boolean;
+  isLoggedIn: boolean;
   autoSyncEnabled: boolean;
+  pendingChanges: boolean;
+  isSyncing: boolean;
+  isOnline: boolean;
   userEmail?: string;
+  accountEmail?: string;
   userId?: string;
   lastSyncedAt?: string;
+  localUpdatedAt?: string;
+  cloudUpdatedAt?: string;
   remoteUpdatedAt?: string;
+  lastSyncError?: string;
+  displayStatus: CloudSyncDisplayStatus;
   hasRemoteSnapshot: boolean;
   restoreRecommended: boolean;
   restoreReason?: string;
@@ -224,6 +240,9 @@ export interface CloudSyncState {
 export interface CloudSyncPreferences {
   autoSyncEnabled: boolean;
   lastSyncedAt?: string;
+  pendingChanges?: boolean;
+  localUpdatedAt?: string;
+  lastSyncError?: string;
 }
 
 export interface TextBackupPayload {

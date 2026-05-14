@@ -19,6 +19,7 @@ export function createId(prefix: string): string {
 }
 
 export function createEmptyMaterial(date = new Date()): Material {
+  const now = date.toISOString();
   return {
     id: createId("material"),
     title: "",
@@ -27,7 +28,8 @@ export function createEmptyMaterial(date = new Date()): Material {
     topic: "ai",
     difficulty: "medium",
     notes: "",
-    createdAt: date.toISOString(),
+    createdAt: now,
+    updatedAt: now,
   };
 }
 

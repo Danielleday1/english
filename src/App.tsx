@@ -16,6 +16,7 @@ import { IELTSPage } from "./pages/IELTSPage";
 import { ProgressPage } from "./pages/ProgressPage";
 import { WorkplacePage } from "./pages/WorkplacePage";
 import { calculateSessionProgress } from "./utils/study";
+import type { CloudSyncDisplayStatus } from "./types/study";
 
 function getPageFromHash(): AppPage {
   const hash = window.location.hash.replace("#", "");
@@ -23,6 +24,19 @@ function getPageFromHash(): AppPage {
     return hash;
   }
   return "dashboard";
+}
+
+function getCloudSyncLabel(status: CloudSyncDisplayStatus): string {
+  const labels: Record<CloudSyncDisplayStatus, string> = {
+    synced: "已同步",
+    syncing: "同步中…",
+    pending: "待同步",
+    failed: "同步失败",
+    offline: "离线保存中",
+    signed_out: "未登录",
+    local_only: "仅本机保存",
+  };
+  return labels[status];
 }
 
 function AppShell() {
@@ -48,12 +62,8 @@ function AppShell() {
   const weeklyReview = getWeeklyReviewData(data);
   const recentSession = getRecentCompletedSession(data.sessions);
   const todayProgress = calculateSessionProgress(todaySession);
-  const cloudLabel = !cloudSync.isConfigured
-    ? "Local Only"
-    : cloudSync.isSignedIn
-      ? "Cloud Connected"
-      : "Cloud Available";
-  const cloudStatus = !cloudSync.isConfigured ? "local_only" : cloudSync.isSignedIn ? "connected" : "available";
+  const cloudLabel = getCloudSyncLabel(cloudSync.displayStatus);
+  const cloudStatus = cloudSync.displayStatus;
 
   return (
     <AppLayout

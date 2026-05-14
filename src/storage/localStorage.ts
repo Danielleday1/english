@@ -61,22 +61,25 @@ export function saveAppData(data: AppData): void {
 
 export function loadCloudSyncPreferences(): CloudSyncPreferences {
   if (typeof window === "undefined") {
-    return { autoSyncEnabled: false };
+    return { autoSyncEnabled: true };
   }
 
   try {
     const raw = window.localStorage.getItem(CLOUD_PREFERENCES_KEY);
     if (!raw) {
-      return { autoSyncEnabled: false };
+      return { autoSyncEnabled: true };
     }
 
     const parsed = JSON.parse(raw) as Partial<CloudSyncPreferences>;
     return {
-      autoSyncEnabled: parsed.autoSyncEnabled ?? false,
+      autoSyncEnabled: parsed.autoSyncEnabled ?? true,
       lastSyncedAt: parsed.lastSyncedAt,
+      pendingChanges: parsed.pendingChanges ?? false,
+      localUpdatedAt: parsed.localUpdatedAt,
+      lastSyncError: parsed.lastSyncError,
     };
   } catch {
-    return { autoSyncEnabled: false };
+    return { autoSyncEnabled: true };
   }
 }
 

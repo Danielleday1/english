@@ -1,8 +1,9 @@
 import clsx from "clsx";
 import { Cloud, Flame, Target, TrendingUp } from "lucide-react";
+import type { CloudSyncDisplayStatus } from "../../types/study";
 
 export type AppPage = "dashboard" | "daily" | "workplace" | "ielts" | "progress";
-export type CloudEntryStatus = "local_only" | "available" | "connected";
+export type CloudEntryStatus = CloudSyncDisplayStatus;
 
 interface TopNavProps {
   appTitle: string;
@@ -35,12 +36,15 @@ export function TopNav({
   cloudLabel,
   cloudStatus,
 }: TopNavProps) {
-  const cloudTone =
-    cloudStatus === "connected"
-      ? "bg-emerald-50 text-emerald-700 border-emerald-200/80"
-      : cloudStatus === "available"
-        ? "bg-sky-50 text-sky-700 border-sky-200/80"
-        : "bg-slate-100 text-slate-600 border-slate-200/80";
+  const cloudTone = {
+    synced: "bg-emerald-50 text-emerald-700 border-emerald-200/80",
+    syncing: "bg-sky-50 text-sky-700 border-sky-200/80",
+    pending: "bg-amber-50 text-amber-700 border-amber-200/80",
+    failed: "bg-rose-50 text-rose-700 border-rose-200/80",
+    offline: "bg-slate-100 text-slate-600 border-slate-200/80",
+    signed_out: "bg-slate-100 text-slate-600 border-slate-200/80",
+    local_only: "bg-slate-100 text-slate-600 border-slate-200/80",
+  } satisfies Record<CloudEntryStatus, string>;
 
   return (
     <header className="panel animate-fade-up px-4 py-4 sm:px-6">
@@ -60,11 +64,11 @@ export function TopNav({
             onClick={onOpenCloudSync}
             className={clsx(
               "inline-flex items-center gap-2 self-start rounded-full border px-4 py-2 text-sm font-medium transition lg:self-end",
-              cloudTone,
+              cloudTone[cloudStatus],
             )}
           >
             <Cloud className="h-4 w-4" />
-            云端同步
+            云端同步 · {cloudLabel}
           </button>
 
           <div className="grid gap-3 sm:grid-cols-3">

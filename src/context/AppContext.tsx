@@ -30,6 +30,7 @@ interface AppContextValue {
   deleteRecording: (recordingId: string) => Promise<void>;
   replaceAllData: (payload: BackupPayload) => Promise<void>;
   requestCloudMagicLink: (email: string) => Promise<void>;
+  syncCloudNow: () => Promise<void>;
   pushCloudBackup: () => Promise<void>;
   pullCloudBackup: () => Promise<void>;
   signOutCloudUser: () => Promise<void>;
@@ -64,20 +65,68 @@ function syncSessionSentenceReferences(sessions: StudySession[], sentence: Sente
 function createInitialCloudSyncState(): CloudSyncState {
   const preferences = loadCloudSyncPreferences();
   const configured = isCloudSyncConfigured();
+  const isOnline = typeof navigator === "undefined" ? true : navigator.onLine;
   return {
     phase: configured ? "checking" : "setup_required",
     isConfigured: configured,
     isSignedIn: false,
+    isLoggedIn: false,
     autoSyncEnabled: preferences.autoSyncEnabled,
+    pendingChanges: preferences.pendingChanges ?? false,
+    isSyncing: false,
+    isOnline,
     hasRemoteSnapshot: false,
     restoreRecommended: false,
     lastSyncedAt: preferences.lastSyncedAt,
-    message: configured ? "登录同一个邮箱后，就可以把记录同步到别的电脑。" : "还没有配置云端同步，当前仍然只保存在本地。",
+    localUpdatedAt: preferences.localUpdatedAt,
+    lastSyncError: preferences.lastSyncError,
+    displayStatus: configured ? (isOnline ? "signed_out" : "offline") : "local_only",
+    message: configured ? "登录同一账号后，系统会自动恢复云端最新数据。" : "还没有配置云端同步，当前仍然只保存在本地。",
   };
 }
 
 function serializeAppData(data: AppData): string {
   return JSON.stringify(data);
+}
+
+function getLatestLocalUpdatedAt(data: AppData): string | undefined {
+  const timestamps = [
+    ...data.sessions.map((session) => session.updatedAt),
+    ...data.sentenceBank.map((sentence) => sentence.updatedAt),
+    ...data.recordings.map((recording) => recording.updatedAt ?? recording.syncedAt ?? recording.createdAt),
+  ].filter(Boolean);
+
+  const sorted = timestamps.sort();
+  return sorted[sorted.length - 1];
+}
+
+function getDisplayStatus(state: {
+  isConfigured: boolean;
+  isSignedIn: boolean;
+  isOnline: boolean;
+  isSyncing: boolean;
+  pendingChanges: boolean;
+  lastSyncError?: string;
+}): CloudSyncState["displayStatus"] {
+  if (!state.isConfigured) {
+    return "local_only";
+  }
+  if (!state.isOnline) {
+    return "offline";
+  }
+  if (!state.isSignedIn) {
+    return "signed_out";
+  }
+  if (state.isSyncing) {
+    return "syncing";
+  }
+  if (state.lastSyncError) {
+    return "failed";
+  }
+  if (state.pendingChanges) {
+    return "pending";
+  }
+  return "synced";
 }
 
 function hasPersistedLearningData(data: AppData): boolean {
@@ -187,134 +236,288 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const autoSyncTimerRef = useRef<number | null>(null);
   const lastSyncedSignatureRef = useRef("");
   const skipAutoSyncRef = useRef(false);
-  const autoRestoreAttemptedRef = useRef(false);
+  const didInitializeSyncRef = useRef(false);
+  const dataRef = useRef(data);
+  const cloudSyncRef = useRef(cloudSync);
+  const localSignatureRef = useRef(serializeAppData(data));
+
+  useEffect(() => {
+    dataRef.current = data;
+  }, [data]);
+
+  useEffect(() => {
+    cloudSyncRef.current = cloudSync;
+  }, [cloudSync]);
 
   useEffect(() => {
     saveAppData(data);
+    const signature = serializeAppData(data);
+    if (signature !== localSignatureRef.current) {
+      localSignatureRef.current = signature;
+      if (!skipAutoSyncRef.current && didInitializeSyncRef.current) {
+        markPendingChanges(data);
+      }
+    }
   }, [data]);
 
   const todayKey = getLocalDateKey();
   const todaySession = data.sessions.find((session) => session.date === todayKey) ?? createEmptySession();
 
-  function persistCloudPreferences(autoSyncEnabled: boolean, lastSyncedAt?: string) {
-    saveCloudSyncPreferences({
-      autoSyncEnabled,
-      lastSyncedAt,
+  function setCloudState(next: Partial<CloudSyncState> | ((current: CloudSyncState) => Partial<CloudSyncState>)) {
+    setCloudSync((current) => {
+      const patch = typeof next === "function" ? next(current) : next;
+      const merged = {
+        ...current,
+        ...patch,
+      };
+      const withStatus = {
+        ...merged,
+        displayStatus: patch.displayStatus ?? getDisplayStatus(merged),
+      };
+      saveCloudSyncPreferences({
+        autoSyncEnabled: withStatus.autoSyncEnabled,
+        lastSyncedAt: withStatus.lastSyncedAt,
+        pendingChanges: withStatus.pendingChanges,
+        localUpdatedAt: withStatus.localUpdatedAt,
+        lastSyncError: withStatus.lastSyncError,
+      });
+      cloudSyncRef.current = withStatus;
+      return withStatus;
+    });
+  }
+
+  function markPendingChanges(nextData: AppData) {
+    const localUpdatedAt = getLatestLocalUpdatedAt(nextData) ?? new Date().toISOString();
+    setCloudState({
+      pendingChanges: true,
+      localUpdatedAt,
+      lastSyncError: undefined,
     });
   }
 
   async function refreshCloudSync(userOverride?: User | null) {
     if (!isCloudSyncConfigured()) {
-      setCloudSync((current) => ({
-        ...current,
+      setCloudState({
         phase: "setup_required",
         isConfigured: false,
         isSignedIn: false,
+        isLoggedIn: false,
         userEmail: undefined,
+        accountEmail: undefined,
         userId: undefined,
         hasRemoteSnapshot: false,
         restoreRecommended: false,
         restoreReason: undefined,
         remoteUpdatedAt: undefined,
+        cloudUpdatedAt: undefined,
         message: "还没有配置云端同步，当前仍然只保存在本地。",
-      }));
+      });
       return;
     }
 
     try {
       const user = userOverride ?? (await getCloudUser());
       if (!user) {
-        setCloudSync((current) => ({
-          ...current,
+        setCloudState({
           phase: "signed_out",
           isConfigured: true,
           isSignedIn: false,
+          isLoggedIn: false,
           userEmail: undefined,
+          accountEmail: undefined,
           userId: undefined,
           hasRemoteSnapshot: false,
           restoreRecommended: false,
           restoreReason: undefined,
           remoteUpdatedAt: undefined,
-          message: "登录同一个邮箱后，就能在别的电脑恢复这份学习记录。",
-        }));
+          cloudUpdatedAt: undefined,
+          message: "登录同一账号后，系统会自动恢复云端最新数据。",
+        });
         return;
       }
 
       const meta = await fetchCloudSnapshotMeta();
-      const localHasData = hasPersistedLearningData(data);
-      setCloudSync((current) => ({
-        ...current,
+      setCloudState((current) => ({
         phase: "ready",
         isConfigured: true,
         isSignedIn: true,
+        isLoggedIn: true,
         userEmail: user.email,
+        accountEmail: user.email,
         userId: user.id,
         hasRemoteSnapshot: meta.hasSnapshot,
-        restoreRecommended: meta.hasSnapshot && (!localHasData || isLaterTimestamp(meta.remoteUpdatedAt, current.lastSyncedAt)),
-        restoreReason: meta.hasSnapshot
-          ? !localHasData
-            ? "这台电脑本地还是空的，登录后会优先从云端接续你的历史记录。"
-            : isLaterTimestamp(meta.remoteUpdatedAt, current.lastSyncedAt)
-              ? "检测到云端记录比这台电脑上次同步更新，如果这是另一台设备，建议先恢复云端数据。"
-              : undefined
-          : undefined,
         remoteUpdatedAt: meta.remoteUpdatedAt,
-        message: meta.hasSnapshot
-          ? !localHasData
-            ? "检测到云端已有记录，这台电脑会自动恢复一次，然后你就可以直接开始学习。"
-            : isLaterTimestamp(meta.remoteUpdatedAt, current.lastSyncedAt)
-              ? "云端已经连上了。检测到云端可能比本地更新，如果这是另一台电脑，建议先恢复一次。"
-              : "云端已经连上了。之后直接继续学习，新的改动会自动同步。"
-          : "云端已经连上了。先上传一次当前数据，别的电脑就能继续使用。",
+        cloudUpdatedAt: meta.remoteUpdatedAt,
+        restoreRecommended: false,
+        restoreReason: undefined,
+        message: current.pendingChanges ? "有未同步内容，系统会自动尝试同步。" : "已连接云端。练习记录会自动同步。",
       }));
     } catch (error) {
-      setCloudSync((current) => ({
-        ...current,
+      setCloudState({
         phase: "error",
+        lastSyncError: getCloudSyncErrorMessage(error),
         message: getCloudSyncErrorMessage(error),
-      }));
+      });
     }
   }
 
   async function runPushCloudBackup(mode: "manual" | "automatic"): Promise<void> {
-    setCloudSync((current) => ({
-      ...current,
+    if (!navigator.onLine) {
+      setCloudState({
+        pendingChanges: true,
+        lastSyncError: "当前离线，练习记录已保存在本机。",
+        message: "当前离线，练习记录已保存在本机。",
+      });
+      return;
+    }
+
+    setCloudState({
       phase: "syncing",
-      message: mode === "automatic" ? "正在把刚才的改动同步到云端..." : "正在上传当前学习记录和录音到云端...",
-    }));
+      isSyncing: true,
+      lastSyncError: undefined,
+      message: mode === "automatic" ? "正在自动同步到云端..." : "正在上传当前学习记录和录音到云端...",
+    });
 
     try {
-      const result = await pushDataToCloud(data);
-      const signature = serializeAppData(data);
+      const sourceData = dataRef.current;
+      const result = await pushDataToCloud(sourceData);
+      const signature = serializeAppData(sourceData);
       lastSyncedSignatureRef.current = signature;
-      persistCloudPreferences(true, result.syncedAt);
 
-      setCloudSync((current) => ({
-        ...current,
+      setCloudState({
         phase: "ready",
+        isSyncing: false,
         autoSyncEnabled: true,
         hasRemoteSnapshot: true,
         restoreRecommended: false,
         restoreReason: undefined,
+        pendingChanges: false,
         lastSyncedAt: result.syncedAt,
+        localUpdatedAt: getLatestLocalUpdatedAt(sourceData) ?? result.syncedAt,
         remoteUpdatedAt: result.remoteUpdatedAt,
-        message: mode === "automatic" ? "最新改动已经自动同步到云端。" : "当前数据和录音已经上传到云端。",
-      }));
+        cloudUpdatedAt: result.remoteUpdatedAt,
+        lastSyncError: undefined,
+        message: mode === "automatic" ? "已自动同步到云端。" : "已自动同步到云端。",
+      });
     } catch (error) {
-      setCloudSync((current) => ({
-        ...current,
+      setCloudState({
         phase: "error",
-        message: getCloudSyncErrorMessage(error),
-      }));
+        isSyncing: false,
+        pendingChanges: true,
+        lastSyncError: getCloudSyncErrorMessage(error),
+        message: "本地已保存，云端同步失败。联网后会自动重试。",
+      });
       throw error;
     }
   }
 
+  async function runSmartCloudSync(reason: "startup" | "manual" | "auto" | "complete" | "resume" | "online" = "auto"): Promise<void> {
+    if (!isCloudSyncConfigured()) {
+      return;
+    }
+
+    if (!navigator.onLine) {
+      setCloudState({
+        isOnline: false,
+        pendingChanges: cloudSyncRef.current.pendingChanges,
+        lastSyncError: "当前离线，练习记录已保存在本机。",
+        message: "当前离线，练习记录已保存在本机。",
+      });
+      return;
+    }
+
+    const user = await getCloudUser();
+    if (!user) {
+      await refreshCloudSync(null);
+      return;
+    }
+
+    setCloudState({
+      phase: "syncing",
+      isConfigured: true,
+      isSignedIn: true,
+      isLoggedIn: true,
+      userEmail: user.email,
+      accountEmail: user.email,
+      userId: user.id,
+      isOnline: true,
+      isSyncing: true,
+      lastSyncError: undefined,
+      message: reason === "manual" ? "正在判断本机和云端数据..." : "正在自动检查云端数据...",
+    });
+
+    try {
+      const meta = await fetchCloudSnapshotMeta();
+      let workingData = dataRef.current;
+      const localHasData = hasPersistedLearningData(workingData);
+      const cloudIsNewer = meta.hasSnapshot && isLaterTimestamp(meta.remoteUpdatedAt, cloudSyncRef.current.lastSyncedAt);
+      let pulledRemote = false;
+
+      if (meta.hasSnapshot && (!localHasData || cloudIsNewer)) {
+        const remote = await pullDataFromCloud({ clearExistingAudio: !localHasData });
+        workingData = localHasData && cloudSyncRef.current.pendingChanges ? mergeAppData(workingData, remote.data) : mergeAppData(workingData, remote.data);
+        skipAutoSyncRef.current = true;
+        setData(ensureTodaySession(workingData));
+        dataRef.current = ensureTodaySession(workingData);
+        pulledRemote = true;
+      }
+
+      const shouldSeedCloud = !meta.hasSnapshot && hasPersistedLearningData(workingData);
+      const shouldPush = cloudSyncRef.current.pendingChanges || shouldSeedCloud || (pulledRemote && hasPersistedLearningData(workingData));
+      let syncedAt = new Date().toISOString();
+      let remoteUpdatedAt = meta.remoteUpdatedAt;
+
+      if (shouldPush) {
+        const result = await pushDataToCloud(dataRef.current);
+        syncedAt = result.syncedAt;
+        remoteUpdatedAt = result.remoteUpdatedAt;
+      } else if (pulledRemote) {
+        syncedAt = meta.remoteUpdatedAt ?? syncedAt;
+      }
+
+      lastSyncedSignatureRef.current = serializeAppData(dataRef.current);
+      setCloudState({
+        phase: "ready",
+        isSyncing: false,
+        autoSyncEnabled: true,
+        hasRemoteSnapshot: meta.hasSnapshot || shouldPush,
+        restoreRecommended: false,
+        restoreReason: undefined,
+        pendingChanges: false,
+        lastSyncedAt: syncedAt,
+        localUpdatedAt: getLatestLocalUpdatedAt(dataRef.current) ?? syncedAt,
+        remoteUpdatedAt,
+        cloudUpdatedAt: remoteUpdatedAt,
+        lastSyncError: undefined,
+        message: pulledRemote || shouldPush ? "已自动同步到云端。" : "已同步。",
+      });
+      window.setTimeout(() => {
+        skipAutoSyncRef.current = false;
+      }, 0);
+    } catch (error) {
+      skipAutoSyncRef.current = false;
+      setCloudState({
+        phase: "error",
+        isSyncing: false,
+        pendingChanges: true,
+        lastSyncError: getCloudSyncErrorMessage(error),
+        message: "本地已保存，云端同步失败。联网后会自动重试。",
+      });
+      if (reason === "manual" || reason === "complete") {
+        throw error;
+      }
+    }
+  }
+
   useEffect(() => {
-    void refreshCloudSync();
+    didInitializeSyncRef.current = true;
+    void runSmartCloudSync("startup");
     const unsubscribe = subscribeToCloudAuth((user) => {
-      autoRestoreAttemptedRef.current = false;
-      void refreshCloudSync(user);
+      if (user) {
+        void runSmartCloudSync("startup");
+      } else {
+        void refreshCloudSync(user);
+      }
     });
 
     return () => {
@@ -335,7 +538,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       autoSyncTimerRef.current = null;
     }
 
-    if (!cloudSync.isConfigured || !cloudSync.isSignedIn || !cloudSync.autoSyncEnabled) {
+    if (!cloudSync.isConfigured || !cloudSync.isSignedIn || !cloudSync.autoSyncEnabled || !cloudSync.pendingChanges) {
       return;
     }
 
@@ -343,11 +546,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    if (cloudSync.restoreRecommended) {
-      return;
-    }
-
-    if (!hasPersistedLearningData(data) && cloudSync.hasRemoteSnapshot) {
+    if (!hasPersistedLearningData(data)) {
       return;
     }
 
@@ -357,44 +556,69 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
 
     autoSyncTimerRef.current = window.setTimeout(() => {
-      void runPushCloudBackup("automatic");
-    }, 1500);
+      void runSmartCloudSync("auto");
+    }, 3500);
 
     return () => {
       if (autoSyncTimerRef.current) {
         window.clearTimeout(autoSyncTimerRef.current);
       }
     };
-  }, [cloudSync.autoSyncEnabled, cloudSync.hasRemoteSnapshot, cloudSync.isConfigured, cloudSync.isSignedIn, cloudSync.phase, cloudSync.restoreRecommended, data]);
+  }, [cloudSync.autoSyncEnabled, cloudSync.isConfigured, cloudSync.isSignedIn, cloudSync.pendingChanges, cloudSync.phase, data]);
 
   useEffect(() => {
-    if (!cloudSync.isConfigured || !cloudSync.isSignedIn || !cloudSync.hasRemoteSnapshot) {
-      return;
-    }
-
-    if (cloudSync.phase !== "ready" || autoRestoreAttemptedRef.current) {
-      return;
-    }
-
-    if (hasPersistedLearningData(data)) {
-      if (cloudSync.restoreRecommended) {
-        autoRestoreAttemptedRef.current = true;
-        void mergeCloudBackup();
+    const handleOnline = () => {
+      setCloudState({ isOnline: true, lastSyncError: undefined });
+      void runSmartCloudSync("online");
+    };
+    const handleOffline = () => {
+      setCloudState({
+        isOnline: false,
+        message: "当前离线，练习记录已保存在本机。",
+      });
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void runSmartCloudSync("resume");
       }
-      return;
-    }
+    };
 
-    autoRestoreAttemptedRef.current = true;
-    void pullCloudBackup();
-  }, [cloudSync.hasRemoteSnapshot, cloudSync.isConfigured, cloudSync.isSignedIn, cloudSync.phase, cloudSync.restoreRecommended, data]);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
 
   function setTodaySession(nextSession: StudySession) {
-    setData((current) => ({
-      ...current,
-      sessions: sortSessions(
-        current.sessions.map((session) => (session.id === nextSession.id ? { ...nextSession, updatedAt: new Date().toISOString() } : session)),
-      ),
-    }));
+    const wasCompleted = dataRef.current.sessions.find((session) => session.id === nextSession.id)?.isCompleted ?? false;
+    const shouldSyncImmediately = nextSession.isCompleted && !wasCompleted;
+    const now = new Date().toISOString();
+
+    setData((current) => {
+      const nextData = {
+        ...current,
+        sessions: sortSessions(
+          current.sessions.map((session) => (session.id === nextSession.id ? { ...nextSession, updatedAt: now } : session)),
+        ),
+      };
+      dataRef.current = nextData;
+      return nextData;
+    });
+
+    if (shouldSyncImmediately) {
+      setCloudState({
+        pendingChanges: true,
+        localUpdatedAt: now,
+        lastSyncError: undefined,
+      });
+      window.setTimeout(() => {
+        void runSmartCloudSync("complete");
+      }, 0);
+    }
   }
 
   function completeTodaySession() {
@@ -575,79 +799,46 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function pullCloudBackup(): Promise<void> {
-    setCloudSync((current) => ({
-      ...current,
+    setCloudState({
       phase: "syncing",
+      isSyncing: true,
+      lastSyncError: undefined,
       message: "正在从云端恢复数据到这台电脑...",
-    }));
+    });
 
     try {
       const result = await pullDataFromCloud();
       const nextData = ensureTodaySession(result.data);
       skipAutoSyncRef.current = true;
       lastSyncedSignatureRef.current = serializeAppData(nextData);
-      persistCloudPreferences(true, result.syncedAt);
+      dataRef.current = nextData;
       setData(nextData);
-      setCloudSync((current) => ({
-        ...current,
+      setCloudState({
         phase: "ready",
+        isSyncing: false,
         autoSyncEnabled: true,
         hasRemoteSnapshot: true,
         restoreRecommended: false,
         restoreReason: undefined,
+        pendingChanges: false,
         lastSyncedAt: result.syncedAt,
         remoteUpdatedAt: result.remoteUpdatedAt,
-        message: "云端数据已经恢复到当前浏览器，你现在可以继续学习了。",
-      }));
+        cloudUpdatedAt: result.remoteUpdatedAt,
+        localUpdatedAt: getLatestLocalUpdatedAt(nextData) ?? result.syncedAt,
+        lastSyncError: undefined,
+        message: "已从云端恢复到这台电脑。",
+      });
       window.setTimeout(() => {
         skipAutoSyncRef.current = false;
       }, 0);
     } catch (error) {
       skipAutoSyncRef.current = false;
-      setCloudSync((current) => ({
-        ...current,
+      setCloudState({
         phase: "error",
+        isSyncing: false,
+        lastSyncError: getCloudSyncErrorMessage(error),
         message: getCloudSyncErrorMessage(error),
-      }));
-      throw error;
-    }
-  }
-
-  async function mergeCloudBackup(): Promise<void> {
-    setCloudSync((current) => ({
-      ...current,
-      phase: "syncing",
-      message: "检测到另一台电脑有更新，正在把云端内容合并到当前设备...",
-    }));
-
-    try {
-      const result = await pullDataFromCloud({ clearExistingAudio: false });
-      const nextData = ensureTodaySession(mergeAppData(data, result.data));
-      skipAutoSyncRef.current = true;
-      lastSyncedSignatureRef.current = serializeAppData(nextData);
-      persistCloudPreferences(true, result.syncedAt);
-      setData(nextData);
-      setCloudSync((current) => ({
-        ...current,
-        phase: "ready",
-        autoSyncEnabled: true,
-        hasRemoteSnapshot: true,
-        restoreRecommended: false,
-        restoreReason: undefined,
-        lastSyncedAt: result.syncedAt,
-        remoteUpdatedAt: result.remoteUpdatedAt,
-        message: "云端新记录已经合并到这台电脑，你现在应该能看到另一台设备上的练习内容。",
-      }));
-      window.setTimeout(() => {
-        skipAutoSyncRef.current = false;
-      }, 0);
-    } catch (error) {
-      skipAutoSyncRef.current = false;
-      setCloudSync((current) => ({
-        ...current,
-        phase: "error",
-        message: getCloudSyncErrorMessage(error),
-      }));
+      });
       throw error;
     }
   }
@@ -655,26 +846,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   async function signOutCloudUser(): Promise<void> {
     try {
       await signOutCloud();
-      persistCloudPreferences(false, cloudSync.lastSyncedAt);
-      setCloudSync((current) => ({
-        ...current,
+      setCloudState({
         phase: "signed_out",
         isSignedIn: false,
-        autoSyncEnabled: false,
+        isLoggedIn: false,
+        autoSyncEnabled: true,
+        pendingChanges: cloudSyncRef.current.pendingChanges,
+        isSyncing: false,
         userEmail: undefined,
+        accountEmail: undefined,
         userId: undefined,
         hasRemoteSnapshot: false,
         restoreRecommended: false,
         restoreReason: undefined,
         remoteUpdatedAt: undefined,
+        cloudUpdatedAt: undefined,
+        lastSyncError: undefined,
         message: "已从当前浏览器退出云端同步。本地记录仍然保留。",
-      }));
+      });
     } catch (error) {
-      setCloudSync((current) => ({
-        ...current,
+      setCloudState({
         phase: "error",
+        lastSyncError: getCloudSyncErrorMessage(error),
         message: getCloudSyncErrorMessage(error),
-      }));
+      });
       throw error;
     }
   }
@@ -695,6 +890,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         deleteRecording,
         replaceAllData,
         requestCloudMagicLink: requestCloudMagicLinkForEmail,
+        syncCloudNow: async () => {
+          await runSmartCloudSync("manual");
+        },
         pushCloudBackup: async () => {
           await runPushCloudBackup("manual");
         },
